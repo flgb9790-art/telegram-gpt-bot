@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { OWNER_TELEGRAM_ID } from "./config.js";
+import { DEFAULT_IMAGE_TOKENS_BALANCE, IMAGE_GENERATION_COST_TOKENS } from "./limits.js";
 
 const db = new Database("bot.db");
 
@@ -16,6 +17,7 @@ db.exec(`
     subscription_plan TEXT DEFAULT 'free',
     gpt_messages_today INTEGER DEFAULT 0,
     images_today INTEGER DEFAULT 0,
+    image_tokens_balance INTEGER DEFAULT 10,
     usage_date TEXT,
     created_at TEXT,
     updated_at TEXT
@@ -25,6 +27,9 @@ db.exec(`
 const userColumns = db.prepare("PRAGMA table_info(users)").all();
 if (!userColumns.some((column) => column.name === "active_chat_id")) {
   db.exec("ALTER TABLE users ADD COLUMN active_chat_id INTEGER");
+}
+if (!userColumns.some((column) => column.name === "image_tokens_balance")) {
+  db.exec("ALTER TABLE users ADD COLUMN image_tokens_balance INTEGER DEFAULT 10");
 }
 
 db.exec(`
@@ -104,6 +109,18 @@ const incrementGptStmt = db.prepare(`
 const incrementImageStmt = db.prepare(`
   UPDATE users
   SET images_today = images_today + 1, updated_at = ?
+  WHERE telegram_id = ?
+`);
+
+const decrementImageTokensStmt = db.prepare(`
+  UPDATE users
+  SET image_tokens_balance = MAX(0, image_tokens_balance - ?), updated_at = ?
+  WHERE telegram_id = ?
+`);
+
+const setImageTokensStmt = db.prepare(`
+  UPDATE users
+  SET image_tokens_balance = ?, updated_at = ?
   WHERE telegram_id = ?
 `);
 
@@ -203,6 +220,11 @@ export function getOrCreateUserFromData({ telegramId, username = null, firstName
     user = getUserByTelegramId(id);
   }
 
+  if (user.image_tokens_balance === null || user.image_tokens_balance === undefined) {
+    setImageTokensStmt.run(DEFAULT_IMAGE_TOKENS_BALANCE, nowIso(), id);
+    user = getUserByTelegramId(id);
+  }
+
   return resetDailyUsageIfNeeded(user);
 }
 
@@ -240,6 +262,18 @@ export function incrementGptUsage(telegramId) {
 
 export function incrementImageUsage(telegramId) {
   incrementImageStmt.run(nowIso(), String(telegramId));
+  return getUserByTelegramId(telegramId);
+}
+
+export function chargeImageGeneration(telegramId, cost = IMAGE_GENERATION_COST_TOKENS) {
+  decrementImageTokensStmt.run(Number(cost), nowIso(), String(telegramId));
+  return getUserByTelegramId(telegramId);
+}
+
+export function addImageTokens(telegramId, amount) {
+  const user = getUserByTelegramId(telegramId);
+  const nextValue = Math.max(0, Number(user?.image_tokens_balance || 0) + Number(amount || 0));
+  setImageTokensStmt.run(nextValue, nowIso(), String(telegramId));
   return getUserByTelegramId(telegramId);
 }
 

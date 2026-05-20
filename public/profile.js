@@ -63,9 +63,15 @@ function renderProfile(data) {
     <div class="item"><span class="label">Изображений сегодня</span><span class="value">${data.usage.images_today}</span></div>
     <div class="item"><span class="label">Лимиты тарифа</span><span class="value">GPT: ${gptLimit} / Image: ${imageLimit}</span></div>
     <div class="item"><span class="label">Доступные модели</span><span class="value">${allowedTextModels ? allowedTextModels.join(", ") : "Все модели API"}</span></div>
+    <div class="item"><span class="label">Токены изображений</span><span class="value">${data.image_tokens_balance}</span></div>
+    <div class="item"><span class="label">Цена генерации</span><span class="value">${data.tokenomics.image_generation_cost_tokens} токен(ов)</span></div>
   `;
 
   upgradeBtn.style.display = isOwner ? "none" : "inline-block";
+  if (!isOwner) {
+    const price = Number(data.tokenomics?.pro_price_stars || 0);
+    upgradeBtn.textContent = price <= 0 ? "Купить Pro (тест: 0 ⭐)" : `Купить Pro (${price} ⭐)`;
+  }
 }
 
 async function loadProfile() {

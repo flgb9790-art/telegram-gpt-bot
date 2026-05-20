@@ -50,6 +50,30 @@ function renderModelSelect(profile) {
   hint.textContent = `Текущий тариф: ${profile.subscription_plan.toUpperCase()}. На Free доступны базовые модели.`;
 }
 
+function renderImageModelSelect(profile) {
+  const select = document.getElementById("image-model-select");
+  const hint = document.getElementById("image-model-hint");
+  select.innerHTML = "";
+
+  const allowedImageModels = profile.limits.allowed_image_models;
+  for (const model of profile.models.image) {
+    const option = document.createElement("option");
+    option.value = model.id;
+    option.textContent = `${model.label} (${model.id})`;
+    const allowed = !Array.isArray(allowedImageModels) || allowedImageModels.includes(model.id);
+    option.disabled = !allowed;
+    if (!allowed) {
+      option.textContent += " • только Pro";
+    }
+    if (profile.selected_image_model === model.id) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  }
+
+  hint.textContent = `Баланс токенов изображений: ${profile.image_tokens_balance}. Стоимость генерации: ${profile.tokenomics.image_generation_cost_tokens} токен(ов).`;
+}
+
 function renderChatSelect(chats, selectedChatId) {
   const chatSelect = document.getElementById("chat-select");
   const chatHint = document.getElementById("chat-hint");
@@ -128,6 +152,7 @@ async function loadData() {
     }
     loadedProfile = data;
     renderModelSelect(data);
+    renderImageModelSelect(data);
     await loadChats(telegramId);
     setStatus("Настройки загружены");
   } catch (error) {
@@ -144,6 +169,7 @@ async function onSaveAndClose() {
   }
 
   const selectedModel = document.getElementById("model-select").value;
+  const selectedImageModel = document.getElementById("image-model-select").value;
   const selectedChatId = document.getElementById("chat-select").value;
   if (!selectedModel) {
     setStatus("Выбери модель", "error");
@@ -152,6 +178,7 @@ async function onSaveAndClose() {
 
   try {
     await saveModel(telegramId, selectedModel);
+    await saveImageModel(telegramId, selectedImageModel);
     if (selectedChatId) {
       await saveActiveChat(telegramId, selectedChatId);
     }
@@ -163,6 +190,22 @@ async function onSaveAndClose() {
     console.error(error);
     setStatus(error.message || "Ошибка сохранения", "error");
   }
+}
+
+async function saveImageModel(telegramId, modelId) {
+  const resp = await fetch("/api/settings/image-model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      telegram_id: telegramId,
+      selected_image_model: modelId
+    })
+  });
+  const data = await resp.json();
+  if (!resp.ok) {
+    throw new Error(data.error || "Не удалось сохранить модель изображений");
+  }
+  return data;
 }
 
 async function onCreateNewChat() {

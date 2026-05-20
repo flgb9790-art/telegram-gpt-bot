@@ -11,8 +11,7 @@ export const BTN_MAIN_MENU = "🏠 Главное меню";
 export function getMainMenuKeyboard() {
   return Markup.keyboard(
     [
-      [Markup.button.text(BTN_CHAT), Markup.button.text(BTN_NEW_CHAT)],
-      [Markup.button.text(BTN_IMAGE)],
+      [Markup.button.text(BTN_CHAT), Markup.button.text(BTN_IMAGE)],
       [Markup.button.webApp(BTN_PROFILE, `${WEBAPP_BASE_URL}/profile.html`)]
     ],
     { columns: 2 }
@@ -23,6 +22,7 @@ export function getMainMenuKeyboard() {
 
 export function getChatModeKeyboard(telegramId) {
   return Markup.keyboard([
+    [Markup.button.text(BTN_NEW_CHAT)],
     [
       Markup.button.webApp(
         BTN_SETTINGS,

@@ -24,3 +24,5 @@ const normalizedWebappBaseUrl = /^https?:\/\//i.test(rawWebappBaseUrl)
   : `https://${rawWebappBaseUrl}`;
 export const WEBAPP_BASE_URL = normalizedWebappBaseUrl.replace(/\/$/, "");
 export const PORT = Number(process.env.PORT || 3000);
+export const PRO_PRICE_STARS = Number(process.env.PRO_PRICE_STARS || 0);
+export const PRO_TEST_IMAGE_TOKENS_BONUS = Number(process.env.PRO_TEST_IMAGE_TOKENS_BONUS || 100);

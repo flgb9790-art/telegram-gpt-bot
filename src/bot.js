@@ -2,10 +2,12 @@ import { Markup, Telegraf } from "telegraf";
 import { TELEGRAM_BOT_TOKEN, WEBAPP_BASE_URL } from "./config.js";
 import {
   addChatMessage,
+  chargeImageGeneration,
   createNewChat,
   ensureActiveChatForUser,
   getChatMessages,
   getOrCreateUser,
+  isOwner,
   updateUserMode,
   incrementGptUsage,
   incrementImageUsage,
@@ -17,11 +19,13 @@ import {
 } from "./db.js";
 import {
   canGenerateImage,
+  canUseImageModel,
   canUseGpt,
   canUseTextModel,
   DEFAULT_IMAGE_MODEL,
   DEFAULT_TEXT_MODEL,
   IMAGE_MODEL_FALLBACKS,
+  IMAGE_GENERATION_COST_TOKENS,
   TEXT_MODEL_FALLBACKS,
   getUserLimits
 } from "./limits.js";
@@ -237,14 +241,14 @@ async function enableImageMode(ctx) {
     user = resetDailyUsageIfNeeded(user);
     if (!canGenerateImage(user)) {
       await ctx.reply(
-        "Лимит генерации изображений на сегодня закончился. Открой профиль, чтобы купить Pro."
+        `Недостаточно токенов для генерации изображения. Стоимость: ${IMAGE_GENERATION_COST_TOKENS} токен(ов). Открой профиль и пополни/купи Pro.`
       );
       return;
     }
 
     updateUserMode(user.telegram_id, "image_generation");
     await ctx.reply(
-      "Опиши изображение, которое хочешь сгенерировать. Сейчас используется GPT Image."
+      `Опиши изображение, которое хочешь сгенерировать. Сейчас используется модель ${user.selected_image_model || DEFAULT_IMAGE_MODEL}.`
     );
   } catch (error) {
     console.error("Ошибка при включении генерации:", error);
@@ -284,13 +288,16 @@ bot.on("text", async (ctx) => {
   if (user.mode === "image_generation") {
     if (!canGenerateImage(user)) {
       await ctx.reply(
-        "Лимит генерации изображений на сегодня закончился. Открой профиль, чтобы купить Pro."
+        `Недостаточно токенов для генерации изображения. Стоимость: ${IMAGE_GENERATION_COST_TOKENS} токен(ов).`
       );
       updateUserMode(user.telegram_id, "main_menu");
       return;
     }
 
-    const imageModel = user.selected_image_model || DEFAULT_IMAGE_MODEL;
+    const imageModelCandidate = user.selected_image_model || DEFAULT_IMAGE_MODEL;
+    const imageModel = canUseImageModel(user, imageModelCandidate)
+      ? imageModelCandidate
+      : DEFAULT_IMAGE_MODEL;
     try {
       const { imageResp } = await generateImageWithFallback({
         prompt: messageText,
@@ -305,6 +312,9 @@ bot.on("text", async (ctx) => {
       const imageBuffer = Buffer.from(b64, "base64");
       await ctx.replyWithPhoto({ source: imageBuffer });
       incrementImageUsage(user.telegram_id);
+      if (!isOwner(user.telegram_id)) {
+        chargeImageGeneration(user.telegram_id);
+      }
       updateUserMode(user.telegram_id, "chat");
       await ctx.reply("Готово! Теперь ты снова в режиме чата.", getChatModeKeyboard(user.telegram_id));
       return;

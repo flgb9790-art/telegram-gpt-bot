@@ -1,6 +1,8 @@
 import express from "express";
 import { openai } from "./openai.js";
+import { PRO_PRICE_STARS, PRO_TEST_IMAGE_TOKENS_BONUS } from "./config.js";
 import {
+  addImageTokens,
   createNewChat,
   ensureActiveChatForUser,
   getChatById,
@@ -11,9 +13,17 @@ import {
   resetDailyUsageIfNeeded,
   setActiveChat,
   setSubscriptionPlan,
+  setUserImageModel,
   setUserTextModel
 } from "./db.js";
-import { TEXT_MODELS, canUseTextModel, getUserLimits } from "./limits.js";
+import {
+  IMAGE_GENERATION_COST_TOKENS,
+  IMAGE_MODELS,
+  TEXT_MODELS,
+  canUseImageModel,
+  canUseTextModel,
+  getUserLimits
+} from "./limits.js";
 
 let modelsCache = { items: TEXT_MODELS, fetchedAt: 0 };
 
@@ -83,6 +93,7 @@ export function createServer() {
         first_name: user.first_name,
         selected_text_model: user.selected_text_model,
         selected_image_model: user.selected_image_model,
+        image_tokens_balance: Number(user.image_tokens_balance || 0),
         subscription_plan: limits.plan,
         active_chat_id: activeChat.id,
         usage: {
@@ -92,10 +103,16 @@ export function createServer() {
         limits: {
           gpt_messages_per_day: limits.gptMessagesPerDay,
           images_per_day: limits.imagesPerDay,
-          allowed_text_models: limits.allowedTextModels
+          allowed_text_models: limits.allowedTextModels,
+          allowed_image_models: limits.allowedImageModels
         },
         models: {
-          text: textModels
+          text: textModels,
+          image: IMAGE_MODELS
+        },
+        tokenomics: {
+          image_generation_cost_tokens: IMAGE_GENERATION_COST_TOKENS,
+          pro_price_stars: PRO_PRICE_STARS
         }
       });
     } catch (error) {
@@ -140,6 +157,41 @@ export function createServer() {
     } catch (error) {
       console.error("Ошибка /api/settings/model:", error);
       return res.status(500).json({ error: "Не удалось сохранить модель" });
+    }
+  });
+
+  app.post("/api/settings/image-model", (req, res) => {
+    try {
+      const telegramId = String(req.body.telegram_id || "");
+      const selectedModel = String(req.body.selected_image_model || "");
+      if (!telegramId || !selectedModel) {
+        return res
+          .status(400)
+          .json({ error: "telegram_id и selected_image_model обязательны" });
+      }
+
+      let user =
+        getUserByTelegramId(telegramId) ||
+        getOrCreateUserFromData({ telegramId, username: null, firstName: null });
+      user = resetDailyUsageIfNeeded(user);
+
+      if (!IMAGE_MODELS.some((model) => model.id === selectedModel)) {
+        return res.status(400).json({ error: "Неизвестная модель изображений" });
+      }
+
+      if (!canUseImageModel(user, selectedModel)) {
+        return res.status(403).json({ error: "Эта модель изображения доступна только по подписке" });
+      }
+
+      const updatedUser = setUserImageModel(telegramId, selectedModel);
+      return res.json({
+        success: true,
+        message: "Модель изображений сохранена",
+        selected_image_model: updatedUser.selected_image_model
+      });
+    } catch (error) {
+      console.error("Ошибка /api/settings/image-model:", error);
+      return res.status(500).json({ error: "Не удалось сохранить модель изображений" });
     }
   });
 
@@ -231,13 +283,26 @@ export function createServer() {
         return res.status(400).json({ error: "telegram_id обязателен" });
       }
 
-      getOrCreateUserFromData({ telegramId, username: null, firstName: null });
-      // TODO: Подключить реальную оплату (Telegram Payments / Telegram Stars) перед продом.
-      const updatedUser = setSubscriptionPlan(telegramId, "pro");
+      if (PRO_PRICE_STARS <= 0) {
+        getOrCreateUserFromData({ telegramId, username: null, firstName: null });
+        const updatedUser = setSubscriptionPlan(telegramId, "pro");
+        if (PRO_TEST_IMAGE_TOKENS_BONUS > 0) {
+          addImageTokens(telegramId, PRO_TEST_IMAGE_TOKENS_BONUS);
+        }
+        return res.json({
+          success: true,
+          message:
+            "Тестовый режим: стоимость Pro = 0 Stars. Подписка активирована без оплаты.",
+          subscription_plan: updatedUser.subscription_plan
+        });
+      }
+
+      // TODO: Подключить реальную оплату Telegram Stars (sendInvoice / successful_payment).
       return res.json({
         success: true,
-        message: "Оплата пока в тестовом режиме",
-        subscription_plan: updatedUser.subscription_plan
+        message:
+          "Оплата через Telegram Stars пока не подключена в этом билде. Для теста можно поставить PRO_PRICE_STARS=0.",
+        subscription_plan: "free"
       });
     } catch (error) {
       console.error("Ошибка /api/subscription/demo-upgrade:", error);

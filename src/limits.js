@@ -17,19 +17,21 @@ export const IMAGE_MODELS = [
 
 export const DEFAULT_TEXT_MODEL = "gpt-4.1-mini";
 export const DEFAULT_IMAGE_MODEL = "gpt-image-1";
+export const IMAGE_GENERATION_COST_TOKENS = 1;
+export const DEFAULT_IMAGE_TOKENS_BALANCE = 10;
 
 export const TEXT_MODEL_FALLBACKS = ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"];
 export const IMAGE_MODEL_FALLBACKS = ["gpt-image-1"];
 
 const PLAN_LIMITS = {
   free: {
-    gptMessagesPerDay: 10,
-    imagesPerDay: 3,
+    gptMessagesPerDay: Infinity,
+    imagesPerDay: Infinity,
     allowedTextModels: ["gpt-4.1-mini", "gpt-4o-mini"]
   },
   pro: {
-    gptMessagesPerDay: 300,
-    imagesPerDay: 100,
+    gptMessagesPerDay: Infinity,
+    imagesPerDay: Infinity,
     allowedTextModels: null
   }
 };
@@ -40,12 +42,17 @@ export function getUserLimits(user) {
       plan: "owner",
       gptMessagesPerDay: Infinity,
       imagesPerDay: Infinity,
-      allowedTextModels: TEXT_MODELS.map((m) => m.id)
+      allowedTextModels: null,
+      allowedImageModels: null
     };
   }
 
   const plan = user.subscription_plan === "pro" ? "pro" : "free";
-  return { plan, ...PLAN_LIMITS[plan] };
+  return {
+    plan,
+    ...PLAN_LIMITS[plan],
+    allowedImageModels: plan === "free" ? ["gpt-image-1"] : null
+  };
 }
 
 export function canUseGpt(user) {
@@ -57,11 +64,10 @@ export function canUseGpt(user) {
 }
 
 export function canGenerateImage(user) {
-  const limits = getUserLimits(user);
-  if (limits.imagesPerDay === Infinity) {
+  if (isOwner(user.telegram_id)) {
     return true;
   }
-  return Number(user.images_today) < limits.imagesPerDay;
+  return Number(user.image_tokens_balance || 0) >= IMAGE_GENERATION_COST_TOKENS;
 }
 
 export function canUseTextModel(user, model) {
@@ -70,6 +76,14 @@ export function canUseTextModel(user, model) {
     return true;
   }
   return limits.allowedTextModels.includes(model);
+}
+
+export function canUseImageModel(user, model) {
+  const limits = getUserLimits(user);
+  if (!Array.isArray(limits.allowedImageModels)) {
+    return true;
+  }
+  return limits.allowedImageModels.includes(model);
 }
 
 export function normalizeTextModelForUser(user, requestedModel) {
