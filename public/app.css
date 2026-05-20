@@ -36,6 +36,11 @@ body {
   border-radius: 16px;
   padding: 18px;
   backdrop-filter: blur(6px);
+  margin-bottom: 14px;
+}
+
+.card-hero {
+  background: linear-gradient(145deg, rgba(107, 139, 255, 0.2), rgba(142, 99, 255, 0.08));
 }
 
 .title {
@@ -178,4 +183,24 @@ button:disabled {
 .small {
   color: var(--muted);
   font-size: 13px;
+}
+
+.mt-10 {
+  margin-top: 10px;
+}
+
+.select {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+.select:focus {
+  border-color: rgba(107, 139, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(107, 139, 255, 0.2);
 }

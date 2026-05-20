@@ -10,8 +10,8 @@ db.exec(`
     telegram_id TEXT PRIMARY KEY,
     username TEXT,
     first_name TEXT,
-    selected_text_model TEXT DEFAULT 'gpt-5-mini',
-    selected_image_model TEXT DEFAULT 'gpt-image-2',
+    selected_text_model TEXT DEFAULT 'gpt-4.1-mini',
+    selected_image_model TEXT DEFAULT 'gpt-image-1',
     mode TEXT DEFAULT 'main_menu',
     subscription_plan TEXT DEFAULT 'free',
     gpt_messages_today INTEGER DEFAULT 0,
@@ -42,7 +42,7 @@ const insertUserStmt = db.prepare(`
     usage_date,
     created_at,
     updated_at
-  ) VALUES (?, ?, ?, 'gpt-5-mini', 'gpt-image-2', 'main_menu', 'free', 0, 0, ?, ?, ?)
+  ) VALUES (?, ?, ?, 'gpt-4.1-mini', 'gpt-image-1', 'main_menu', 'free', 0, 0, ?, ?, ?)
 `);
 
 const updateIdentityStmt = db.prepare(`

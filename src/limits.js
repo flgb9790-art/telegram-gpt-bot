@@ -1,16 +1,32 @@
 import { isOwner } from "./db.js";
 
 export const TEXT_MODELS = [
+  { id: "gpt-4.1-mini", label: "GPT-4.1 mini" },
+  { id: "gpt-4o-mini", label: "GPT-4o mini" },
+  { id: "gpt-4.1", label: "GPT-4.1" },
+  { id: "gpt-4o", label: "GPT-4o" },
   { id: "gpt-5.2", label: "GPT-5.2" },
   { id: "gpt-5-mini", label: "GPT-5 mini" },
-  { id: "gpt-5-nano", label: "GPT-5 nano" },
-  { id: "gpt-4.1", label: "GPT-4.1" }
+  { id: "gpt-5-nano", label: "GPT-5 nano" }
 ];
 
-export const IMAGE_MODELS = [{ id: "gpt-image-2", label: "GPT Image 2" }];
+export const IMAGE_MODELS = [
+  { id: "gpt-image-1", label: "GPT Image 1" },
+  { id: "gpt-image-2", label: "GPT Image 2" }
+];
+
+export const DEFAULT_TEXT_MODEL = "gpt-4.1-mini";
+export const DEFAULT_IMAGE_MODEL = "gpt-image-1";
+
+export const TEXT_MODEL_FALLBACKS = ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"];
+export const IMAGE_MODEL_FALLBACKS = ["gpt-image-1"];
 
 const PLAN_LIMITS = {
-  free: { gptMessagesPerDay: 10, imagesPerDay: 3, allowedTextModels: ["gpt-5-nano"] },
+  free: {
+    gptMessagesPerDay: 10,
+    imagesPerDay: 3,
+    allowedTextModels: ["gpt-4.1-mini", "gpt-4o-mini"]
+  },
   pro: {
     gptMessagesPerDay: 300,
     imagesPerDay: 100,
@@ -57,5 +73,5 @@ export function normalizeTextModelForUser(user, requestedModel) {
   if (canUseTextModel(user, requestedModel)) {
     return requestedModel;
   }
-  return "gpt-5-nano";
+  return DEFAULT_TEXT_MODEL;
 }

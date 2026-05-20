@@ -54,9 +54,11 @@ function renderProfile(data) {
     <div class="item"><span class="label">Username</span><span class="value">${data.username || "-"}</span></div>
     <div class="item"><span class="label">Telegram ID</span><span class="value">${data.telegram_id}</span></div>
     <div class="item"><span class="label">Выбранная GPT-модель</span><span class="value">${data.selected_text_model}</span></div>
+    <div class="item"><span class="label">Модель изображений</span><span class="value">${data.selected_image_model}</span></div>
     <div class="item"><span class="label">GPT сообщений сегодня</span><span class="value">${data.usage.gpt_messages_today}</span></div>
     <div class="item"><span class="label">Изображений сегодня</span><span class="value">${data.usage.images_today}</span></div>
     <div class="item"><span class="label">Лимиты тарифа</span><span class="value">GPT: ${gptLimit} / Image: ${imageLimit}</span></div>
+    <div class="item"><span class="label">Доступные модели</span><span class="value">${data.limits.allowed_text_models.join(", ")}</span></div>
   `;
 
   upgradeBtn.style.display = isOwner ? "none" : "inline-block";

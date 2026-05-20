@@ -9,9 +9,26 @@ import {
   resetDailyUsageIfNeeded,
   setUserTextModel
 } from "./db.js";
-import { canGenerateImage, canUseGpt, canUseTextModel, getUserLimits } from "./limits.js";
+import {
+  canGenerateImage,
+  canUseGpt,
+  canUseTextModel,
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_TEXT_MODEL,
+  IMAGE_MODEL_FALLBACKS,
+  TEXT_MODEL_FALLBACKS,
+  getUserLimits
+} from "./limits.js";
 import { openai } from "./openai.js";
-import { getChatModeKeyboard, getMainMenuKeyboard, getProfileKeyboard } from "./menus.js";
+import {
+  BTN_CHAT,
+  BTN_IMAGE,
+  BTN_MAIN_MENU,
+  BTN_PROFILE,
+  getChatModeKeyboard,
+  getMainMenuKeyboard,
+  getProfileKeyboard
+} from "./menus.js";
 
 function extractOutputText(response) {
   if (response?.output_text) {
@@ -38,6 +55,69 @@ function extractOutputText(response) {
 }
 
 export const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
+
+function shouldTryAnotherModel(error) {
+  const status = Number(error?.status);
+  return status === 400 || status === 403 || status === 404;
+}
+
+function uniqueModels(models) {
+  return [...new Set(models.filter(Boolean))];
+}
+
+async function generateTextWithFallback({ messageText, user }) {
+  const limits = getUserLimits(user);
+  const requestedModel = user.selected_text_model || DEFAULT_TEXT_MODEL;
+  const allowedModels = limits.allowedTextModels;
+  const preferredModel = canUseTextModel(user, requestedModel) ? requestedModel : DEFAULT_TEXT_MODEL;
+  const candidates = uniqueModels([
+    preferredModel,
+    ...TEXT_MODEL_FALLBACKS.filter((model) => allowedModels.includes(model))
+  ]);
+
+  let lastError = null;
+  for (const model of candidates) {
+    try {
+      const response = await openai.responses.create({
+        model,
+        input: messageText,
+        instructions:
+          "Ты полезный Telegram GPT-бот. Отвечай понятно, структурированно и без лишней воды."
+      });
+      return { model, response };
+    } catch (error) {
+      lastError = error;
+      if (!shouldTryAnotherModel(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error("Не удалось получить ответ ни от одной модели");
+}
+
+async function generateImageWithFallback({ prompt, requestedModel }) {
+  const candidates = uniqueModels([requestedModel, ...IMAGE_MODEL_FALLBACKS, DEFAULT_IMAGE_MODEL]);
+  let lastError = null;
+
+  for (const model of candidates) {
+    try {
+      const imageResp = await openai.images.generate({
+        model,
+        prompt,
+        size: "1024x1024"
+      });
+      return { model, imageResp };
+    } catch (error) {
+      lastError = error;
+      if (!shouldTryAnotherModel(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error("Не удалось сгенерировать изображение ни одной моделью");
+}
 
 bot.start(async (ctx) => {
   try {
@@ -69,34 +149,32 @@ bot.command("profile", async (ctx) => {
   }
 });
 
-bot.action("menu_main", async (ctx) => {
+async function openMainMenu(ctx) {
   try {
     const user = getOrCreateUser(ctx);
     updateUserMode(user.telegram_id, "main_menu");
-    await ctx.answerCbQuery();
     await ctx.reply("Главное меню:", getMainMenuKeyboard());
   } catch (error) {
     console.error("Ошибка при переходе в меню:", error);
-    await ctx.answerCbQuery("Ошибка");
+    await ctx.reply("Не удалось открыть меню. Попробуй позже.");
   }
-});
+}
 
-bot.action("menu_chat", async (ctx) => {
+async function enableChatMode(ctx) {
   try {
     const user = getOrCreateUser(ctx);
     updateUserMode(user.telegram_id, "chat");
-    await ctx.answerCbQuery();
     await ctx.reply(
       "Режим чата включен. Напиши сообщение, и я отвечу через GPT.",
       getChatModeKeyboard(user.telegram_id)
     );
   } catch (error) {
     console.error("Ошибка при включении чата:", error);
-    await ctx.answerCbQuery("Не удалось включить режим чата");
+    await ctx.reply("Не удалось включить режим чата.");
   }
-});
+}
 
-bot.action("menu_image", async (ctx) => {
+async function enableImageMode(ctx) {
   try {
     let user = getOrCreateUser(ctx);
     user = resetDailyUsageIfNeeded(user);
@@ -109,14 +187,21 @@ bot.action("menu_image", async (ctx) => {
     }
 
     updateUserMode(user.telegram_id, "image_generation");
-    await ctx.answerCbQuery();
     await ctx.reply(
-      "Опиши изображение, которое хочешь сгенерировать. Сейчас используется GPT Image 2."
+      "Опиши изображение, которое хочешь сгенерировать. Сейчас используется GPT Image."
     );
   } catch (error) {
     console.error("Ошибка при включении генерации:", error);
-    await ctx.answerCbQuery("Не удалось включить режим генерации");
+    await ctx.reply("Не удалось включить режим генерации.");
   }
+}
+
+bot.hears(BTN_CHAT, enableChatMode);
+bot.hears(BTN_IMAGE, enableImageMode);
+bot.hears(BTN_MAIN_MENU, openMainMenu);
+bot.hears(BTN_PROFILE, async (ctx) => {
+  const user = getOrCreateUser(ctx);
+  await ctx.reply("Открываю профиль:", getProfileKeyboard(user.telegram_id));
 });
 
 bot.on("text", async (ctx) => {
@@ -148,12 +233,11 @@ bot.on("text", async (ctx) => {
       return;
     }
 
-    const imageModel = user.selected_image_model || "gpt-image-2";
+    const imageModel = user.selected_image_model || DEFAULT_IMAGE_MODEL;
     try {
-      const imageResp = await openai.images.generate({
-        model: imageModel,
+      const { imageResp } = await generateImageWithFallback({
         prompt: messageText,
-        size: "1024x1024"
+        requestedModel: imageModel
       });
 
       const b64 = imageResp?.data?.[0]?.b64_json;
@@ -184,18 +268,19 @@ bot.on("text", async (ctx) => {
     }
 
     try {
-      const requestedModel = user.selected_text_model || "gpt-5-mini";
-      const effectiveModel = canUseTextModel(user, requestedModel) ? requestedModel : "gpt-5-nano";
+      const requestedModel = user.selected_text_model || DEFAULT_TEXT_MODEL;
+      const effectiveModel = canUseTextModel(user, requestedModel) ? requestedModel : DEFAULT_TEXT_MODEL;
       if (effectiveModel !== requestedModel) {
         setUserTextModel(user.telegram_id, effectiveModel);
       }
 
-      const response = await openai.responses.create({
-        model: effectiveModel,
-        input: messageText,
-        instructions:
-          "Ты полезный Telegram GPT-бот. Отвечай понятно, структурированно и без лишней воды."
+      const { model, response } = await generateTextWithFallback({
+        messageText,
+        user: { ...user, selected_text_model: effectiveModel }
       });
+      if (model !== effectiveModel) {
+        setUserTextModel(user.telegram_id, model);
+      }
 
       const text = extractOutputText(response);
       if (!text) {

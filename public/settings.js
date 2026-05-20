@@ -2,14 +2,8 @@ const tg = window.Telegram?.WebApp;
 if (tg) {
   tg.ready();
   tg.expand();
+  tg.MainButton.hide();
 }
-
-const MODELS = [
-  { id: "gpt-5.2", label: "GPT-5.2" },
-  { id: "gpt-5-mini", label: "GPT-5 mini" },
-  { id: "gpt-5-nano", label: "GPT-5 nano" },
-  { id: "gpt-4.1", label: "GPT-4.1" }
-];
 
 function getTelegramId() {
   const fromInitData = tg?.initDataUnsafe?.user?.id;
@@ -27,36 +21,29 @@ function setStatus(message, type = "success") {
   statusEl.className = `status ${type === "error" ? "status-error" : "status-success"}`;
 }
 
-function renderModels(currentModel, allowedModels, telegramId) {
-  const list = document.getElementById("model-list");
-  const current = document.getElementById("current-model");
-  current.textContent = `Текущая модель: ${currentModel}`;
+let loadedProfile = null;
 
-  list.innerHTML = "";
-  for (const model of MODELS) {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = `model-card ${model.id === currentModel ? "active" : ""}`;
-    card.innerHTML = `
-      <div class="value">${model.label}</div>
-      <div class="small">${model.id}</div>
-    `;
+function renderModelSelect(profile) {
+  const select = document.getElementById("model-select");
+  const hint = document.getElementById("model-hint");
+  select.innerHTML = "";
 
-    const allowed = allowedModels.includes(model.id);
+  for (const model of profile.models.text) {
+    const option = document.createElement("option");
+    option.value = model.id;
+    option.textContent = `${model.label} (${model.id})`;
+    const allowed = profile.limits.allowed_text_models.includes(model.id);
+    option.disabled = !allowed;
     if (!allowed) {
-      card.querySelector(".small").textContent = `${model.id} • только по подписке`;
+      option.textContent += " • только Pro";
     }
-
-    card.addEventListener("click", async () => {
-      if (!allowed) {
-        setStatus("Эта модель доступна только по подписке", "error");
-        return;
-      }
-      await saveModel(telegramId, model.id);
-    });
-
-    list.appendChild(card);
+    if (profile.selected_text_model === model.id) {
+      option.selected = true;
+    }
+    select.appendChild(option);
   }
+
+  hint.textContent = `Текущий тариф: ${profile.subscription_plan.toUpperCase()}. На Free доступны базовые модели.`;
 }
 
 async function saveModel(telegramId, modelId) {
@@ -73,8 +60,10 @@ async function saveModel(telegramId, modelId) {
     if (!resp.ok) {
       throw new Error(data.error || "Не удалось сохранить модель");
     }
-    setStatus("Модель сохранена");
-    await loadData();
+    setStatus("Модель сохранена, закрываю Mini App...");
+    if (tg?.close) {
+      setTimeout(() => tg.close(), 500);
+    }
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Ошибка сохранения", "error");
@@ -95,11 +84,32 @@ async function loadData() {
     if (!resp.ok) {
       throw new Error(data.error || "Не удалось получить настройки");
     }
-    renderModels(data.selected_text_model, data.limits.allowed_text_models, telegramId);
+    loadedProfile = data;
+    renderModelSelect(data);
+    setStatus("Настройки загружены");
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Ошибка загрузки", "error");
   }
 }
+
+async function onSaveAndClose() {
+  const telegramId = getTelegramId();
+  if (!telegramId || !loadedProfile) {
+    setStatus("Сначала дождись загрузки настроек", "error");
+    return;
+  }
+
+  const selectedModel = document.getElementById("model-select").value;
+  if (!selectedModel) {
+    setStatus("Выбери модель", "error");
+    return;
+  }
+
+  await saveModel(telegramId, selectedModel);
+}
+
+document.getElementById("save-close-btn").addEventListener("click", onSaveAndClose);
+document.getElementById("refresh-btn").addEventListener("click", loadData);
 
 loadData();
