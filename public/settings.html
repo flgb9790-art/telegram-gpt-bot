@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Настройки GPT</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <main class="container">
+      <section class="card">
+        <h1 class="title">⚙️ Настройки GPT</h1>
+        <p class="subtitle">Выбери модель для текстового чата.</p>
+        <div class="small" id="current-model">Текущая модель: загрузка...</div>
+        <div class="model-list" id="model-list"></div>
+        <div id="status" class="status"></div>
+      </section>
+    </main>
+    <script src="/settings.js" type="module"></script>
+  </body>
+</html>
