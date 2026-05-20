@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import { OWNER_TELEGRAM_ID } from "./config.js";
-import { DEFAULT_IMAGE_TOKENS_BALANCE, IMAGE_GENERATION_COST_TOKENS } from "./limits.js";
+
+const DEFAULT_IMAGE_TOKENS_BALANCE = 10;
+const IMAGE_GENERATION_COST_TOKENS = 1;
 
 const db = new Database("bot.db");
 
@@ -49,6 +51,18 @@ db.exec(`
     chat_id INTEGER NOT NULL,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS token_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id TEXT NOT NULL,
+    delta INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    meta TEXT,
     created_at TEXT NOT NULL
   )
 `);
@@ -122,6 +136,25 @@ const setImageTokensStmt = db.prepare(`
   UPDATE users
   SET image_tokens_balance = ?, updated_at = ?
   WHERE telegram_id = ?
+`);
+
+const updateImageTokensWithFloorStmt = db.prepare(`
+  UPDATE users
+  SET image_tokens_balance = image_tokens_balance - ?, updated_at = ?
+  WHERE telegram_id = ? AND image_tokens_balance >= ?
+`);
+
+const createTokenTransactionStmt = db.prepare(`
+  INSERT INTO token_transactions (telegram_id, delta, balance_after, reason, meta, created_at)
+  VALUES (?, ?, ?, ?, ?, ?)
+`);
+
+const selectRecentTokenTransactionsStmt = db.prepare(`
+  SELECT id, telegram_id, delta, balance_after, reason, meta, created_at
+  FROM token_transactions
+  WHERE telegram_id = ?
+  ORDER BY id DESC
+  LIMIT ?
 `);
 
 const resetUsageStmt = db.prepare(`
@@ -275,6 +308,74 @@ export function addImageTokens(telegramId, amount) {
   const nextValue = Math.max(0, Number(user?.image_tokens_balance || 0) + Number(amount || 0));
   setImageTokensStmt.run(nextValue, nowIso(), String(telegramId));
   return getUserByTelegramId(telegramId);
+}
+
+function normalizeMeta(meta) {
+  if (!meta) {
+    return null;
+  }
+  try {
+    return JSON.stringify(meta);
+  } catch (_error) {
+    return null;
+  }
+}
+
+const addImageTokensAtomicTx = db.transaction((telegramId, amount, reason, meta) => {
+  const id = String(telegramId);
+  const delta = Math.max(0, Number(amount || 0));
+  const user = getUserByTelegramId(id);
+  if (!user) {
+    throw new Error("Пользователь не найден для начисления токенов");
+  }
+
+  const nextBalance = Number(user.image_tokens_balance || 0) + delta;
+  const now = nowIso();
+  setImageTokensStmt.run(nextBalance, now, id);
+  createTokenTransactionStmt.run(id, delta, nextBalance, reason, normalizeMeta(meta), now);
+  return { success: true, balanceAfter: nextBalance, delta };
+});
+
+const chargeImageTokensAtomicTx = db.transaction((telegramId, amount, reason, meta) => {
+  const id = String(telegramId);
+  const delta = Math.max(0, Number(amount || 0));
+  const user = getUserByTelegramId(id);
+  if (!user) {
+    throw new Error("Пользователь не найден для списания токенов");
+  }
+
+  const now = nowIso();
+  const result = updateImageTokensWithFloorStmt.run(delta, now, id, delta);
+  if (result.changes === 0) {
+    return {
+      success: false,
+      reason: "INSUFFICIENT_TOKENS",
+      balanceAfter: Number(user.image_tokens_balance || 0),
+      delta: 0
+    };
+  }
+
+  const updatedUser = getUserByTelegramId(id);
+  const nextBalance = Number(updatedUser.image_tokens_balance || 0);
+  createTokenTransactionStmt.run(id, -delta, nextBalance, reason, normalizeMeta(meta), now);
+  return { success: true, balanceAfter: nextBalance, delta: -delta };
+});
+
+export function addImageTokensAtomic(telegramId, amount, reason = "topup", meta = null) {
+  return addImageTokensAtomicTx(telegramId, amount, reason, meta);
+}
+
+export function chargeImageTokensAtomic(
+  telegramId,
+  amount = IMAGE_GENERATION_COST_TOKENS,
+  reason = "image_generation",
+  meta = null
+) {
+  return chargeImageTokensAtomicTx(telegramId, amount, reason, meta);
+}
+
+export function getRecentTokenTransactions(telegramId, limit = 20) {
+  return selectRecentTokenTransactionsStmt.all(String(telegramId), Number(limit));
 }
 
 export function resetDailyUsageIfNeeded(user) {

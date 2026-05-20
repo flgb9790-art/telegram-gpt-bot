@@ -2,11 +2,12 @@ import express from "express";
 import { openai } from "./openai.js";
 import { PRO_PRICE_STARS, PRO_TEST_IMAGE_TOKENS_BONUS } from "./config.js";
 import {
-  addImageTokens,
+  addImageTokensAtomic,
   createNewChat,
   ensureActiveChatForUser,
   getChatById,
   getChatMessages,
+  getRecentTokenTransactions,
   getOrCreateUserFromData,
   getUserChats,
   getUserByTelegramId,
@@ -113,7 +114,8 @@ export function createServer() {
         tokenomics: {
           image_generation_cost_tokens: IMAGE_GENERATION_COST_TOKENS,
           pro_price_stars: PRO_PRICE_STARS
-        }
+        },
+        recent_token_transactions: getRecentTokenTransactions(telegramId, 10)
       });
     } catch (error) {
       console.error("Ошибка /api/profile:", error);
@@ -287,7 +289,9 @@ export function createServer() {
         getOrCreateUserFromData({ telegramId, username: null, firstName: null });
         const updatedUser = setSubscriptionPlan(telegramId, "pro");
         if (PRO_TEST_IMAGE_TOKENS_BONUS > 0) {
-          addImageTokens(telegramId, PRO_TEST_IMAGE_TOKENS_BONUS);
+          addImageTokensAtomic(telegramId, PRO_TEST_IMAGE_TOKENS_BONUS, "pro_bonus", {
+            source: "demo_upgrade"
+          });
         }
         return res.json({
           success: true,
@@ -307,6 +311,29 @@ export function createServer() {
     } catch (error) {
       console.error("Ошибка /api/subscription/demo-upgrade:", error);
       return res.status(500).json({ error: "Не удалось обновить тариф" });
+    }
+  });
+
+  app.get("/api/tokens/transactions", (req, res) => {
+    try {
+      const telegramId = String(req.query.telegram_id || "");
+      const limit = Number(req.query.limit || 20);
+      if (!telegramId) {
+        return res.status(400).json({ error: "telegram_id обязателен" });
+      }
+
+      const user =
+        getUserByTelegramId(telegramId) ||
+        getOrCreateUserFromData({ telegramId, username: null, firstName: null });
+
+      return res.json({
+        telegram_id: user.telegram_id,
+        image_tokens_balance: Number(user.image_tokens_balance || 0),
+        items: getRecentTokenTransactions(telegramId, Math.max(1, Math.min(limit, 100)))
+      });
+    } catch (error) {
+      console.error("Ошибка /api/tokens/transactions:", error);
+      return res.status(500).json({ error: "Не удалось загрузить транзакции токенов" });
     }
   });
 

@@ -2,7 +2,8 @@ import { Markup, Telegraf } from "telegraf";
 import { TELEGRAM_BOT_TOKEN, WEBAPP_BASE_URL } from "./config.js";
 import {
   addChatMessage,
-  chargeImageGeneration,
+  addImageTokensAtomic,
+  chargeImageTokensAtomic,
   createNewChat,
   ensureActiveChatForUser,
   getChatMessages,
@@ -298,7 +299,25 @@ bot.on("text", async (ctx) => {
     const imageModel = canUseImageModel(user, imageModelCandidate)
       ? imageModelCandidate
       : DEFAULT_IMAGE_MODEL;
+    let charged = false;
     try {
+      if (!isOwner(user.telegram_id)) {
+        const chargeResult = chargeImageTokensAtomic(
+          user.telegram_id,
+          IMAGE_GENERATION_COST_TOKENS,
+          "image_generation",
+          { model: imageModel }
+        );
+        if (!chargeResult.success) {
+          await ctx.reply(
+            `Недостаточно токенов для генерации изображения. Нужно ${IMAGE_GENERATION_COST_TOKENS}, доступно ${chargeResult.balanceAfter}.`
+          );
+          updateUserMode(user.telegram_id, "main_menu");
+          return;
+        }
+        charged = true;
+      }
+
       const { imageResp } = await generateImageWithFallback({
         prompt: messageText,
         requestedModel: imageModel
@@ -312,13 +331,18 @@ bot.on("text", async (ctx) => {
       const imageBuffer = Buffer.from(b64, "base64");
       await ctx.replyWithPhoto({ source: imageBuffer });
       incrementImageUsage(user.telegram_id);
-      if (!isOwner(user.telegram_id)) {
-        chargeImageGeneration(user.telegram_id);
-      }
       updateUserMode(user.telegram_id, "chat");
       await ctx.reply("Готово! Теперь ты снова в режиме чата.", getChatModeKeyboard(user.telegram_id));
       return;
     } catch (error) {
+      if (charged) {
+        addImageTokensAtomic(
+          user.telegram_id,
+          IMAGE_GENERATION_COST_TOKENS,
+          "image_generation_refund",
+          { reason: "generation_failed", model: imageModel }
+        );
+      }
       console.error("Ошибка генерации изображения:", error);
       await ctx.reply(
         "Не удалось сгенерировать изображение. Возможно, модель недоступна на этом API-аккаунте."

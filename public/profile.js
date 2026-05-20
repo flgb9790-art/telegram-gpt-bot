@@ -26,6 +26,13 @@ function setStatus(message, type = "success") {
 }
 
 function renderProfile(data) {
+  const recentOps = Array.isArray(data.recent_token_transactions)
+    ? data.recent_token_transactions
+        .slice(0, 3)
+        .map((item) => `${item.delta > 0 ? "+" : ""}${item.delta} (${item.reason})`)
+        .join(", ")
+    : "—";
+
   const allowedTextModels = Array.isArray(data.limits.allowed_text_models)
     ? data.limits.allowed_text_models
     : null;
@@ -65,6 +72,7 @@ function renderProfile(data) {
     <div class="item"><span class="label">Доступные модели</span><span class="value">${allowedTextModels ? allowedTextModels.join(", ") : "Все модели API"}</span></div>
     <div class="item"><span class="label">Токены изображений</span><span class="value">${data.image_tokens_balance}</span></div>
     <div class="item"><span class="label">Цена генерации</span><span class="value">${data.tokenomics.image_generation_cost_tokens} токен(ов)</span></div>
+    <div class="item"><span class="label">Последние операции</span><span class="value">${recentOps || "—"}</span></div>
   `;
 
   upgradeBtn.style.display = isOwner ? "none" : "inline-block";
