@@ -1,12 +1,18 @@
-import { Telegraf } from "telegraf";
-import { TELEGRAM_BOT_TOKEN } from "./config.js";
+import { Markup, Telegraf } from "telegraf";
+import { TELEGRAM_BOT_TOKEN, WEBAPP_BASE_URL } from "./config.js";
 import {
+  addChatMessage,
+  createNewChat,
+  ensureActiveChatForUser,
+  getChatMessages,
   getOrCreateUser,
   updateUserMode,
   incrementGptUsage,
   incrementImageUsage,
   getUserByTelegramId,
   resetDailyUsageIfNeeded,
+  setActiveChat,
+  setChatTitle,
   setUserTextModel
 } from "./db.js";
 import {
@@ -24,6 +30,7 @@ import {
   BTN_CHAT,
   BTN_IMAGE,
   BTN_MAIN_MENU,
+  BTN_NEW_CHAT,
   BTN_PROFILE,
   getChatModeKeyboard,
   getMainMenuKeyboard,
@@ -65,6 +72,38 @@ function uniqueModels(models) {
   return [...new Set(models.filter(Boolean))];
 }
 
+function buildResponseInput(messages, messageText) {
+  const contextMessages = messages.slice(-12);
+  const contextBlock = contextMessages
+    .map((msg) => `${msg.role === "assistant" ? "Ассистент" : "Пользователь"}: ${msg.content}`)
+    .join("\n\n");
+
+  return contextBlock
+    ? `${contextBlock}\n\nПользователь: ${messageText}`
+    : `Пользователь: ${messageText}`;
+}
+
+async function sendResponseWithFullViewButton(ctx, telegramId, chatId, fullText) {
+  const maxChunk = 3500;
+  if (fullText.length <= maxChunk) {
+    await ctx.reply(fullText);
+    return;
+  }
+
+  const preview = `${fullText.slice(0, maxChunk)}\n\n...Ответ обрезан для Telegram.`;
+  await ctx.reply(
+    preview,
+    Markup.inlineKeyboard([
+      [
+        Markup.button.webApp(
+          "📖 Показать весь ответ",
+          `${WEBAPP_BASE_URL}/chat.html?telegram_id=${encodeURIComponent(String(telegramId))}&chat_id=${encodeURIComponent(String(chatId))}`
+        )
+      ]
+    ])
+  );
+}
+
 async function generateTextWithFallback({ messageText, user }) {
   const limits = getUserLimits(user);
   const requestedModel = user.selected_text_model || DEFAULT_TEXT_MODEL;
@@ -72,7 +111,7 @@ async function generateTextWithFallback({ messageText, user }) {
   const preferredModel = canUseTextModel(user, requestedModel) ? requestedModel : DEFAULT_TEXT_MODEL;
   const candidates = uniqueModels([
     preferredModel,
-    ...TEXT_MODEL_FALLBACKS.filter((model) => allowedModels.includes(model))
+    ...TEXT_MODEL_FALLBACKS.filter((model) => !allowedModels || allowedModels.includes(model))
   ]);
 
   let lastError = null;
@@ -163,6 +202,7 @@ async function openMainMenu(ctx) {
 async function enableChatMode(ctx) {
   try {
     const user = getOrCreateUser(ctx);
+    ensureActiveChatForUser(user);
     updateUserMode(user.telegram_id, "chat");
     await ctx.reply(
       "Режим чата включен. Напиши сообщение, и я отвечу через GPT.",
@@ -174,12 +214,28 @@ async function enableChatMode(ctx) {
   }
 }
 
+async function startNewChat(ctx) {
+  try {
+    const user = getOrCreateUser(ctx);
+    const model = user.selected_text_model || DEFAULT_TEXT_MODEL;
+    const chat = createNewChat(user.telegram_id, model, "Новый чат");
+    setActiveChat(user.telegram_id, chat.id);
+    updateUserMode(user.telegram_id, "chat");
+    await ctx.reply(
+      `Новый чат создан. Используется модель ${model}.\nНапиши свой запрос.`,
+      getChatModeKeyboard(user.telegram_id)
+    );
+  } catch (error) {
+    console.error("Ошибка создания нового чата:", error);
+    await ctx.reply("Не удалось создать новый чат.");
+  }
+}
+
 async function enableImageMode(ctx) {
   try {
     let user = getOrCreateUser(ctx);
     user = resetDailyUsageIfNeeded(user);
     if (!canGenerateImage(user)) {
-      await ctx.answerCbQuery();
       await ctx.reply(
         "Лимит генерации изображений на сегодня закончился. Открой профиль, чтобы купить Pro."
       );
@@ -198,6 +254,7 @@ async function enableImageMode(ctx) {
 
 bot.hears(BTN_CHAT, enableChatMode);
 bot.hears(BTN_IMAGE, enableImageMode);
+bot.hears(BTN_NEW_CHAT, startNewChat);
 bot.hears(BTN_MAIN_MENU, openMainMenu);
 bot.hears(BTN_PROFILE, async (ctx) => {
   const user = getOrCreateUser(ctx);
@@ -274,10 +331,41 @@ bot.on("text", async (ctx) => {
         setUserTextModel(user.telegram_id, effectiveModel);
       }
 
-      const { model, response } = await generateTextWithFallback({
-        messageText,
-        user: { ...user, selected_text_model: effectiveModel }
-      });
+      const activeChat = ensureActiveChatForUser(user);
+      const previousMessages = getChatMessages(activeChat.id);
+      addChatMessage(activeChat.id, "user", messageText);
+      if (previousMessages.length === 0 && activeChat.title === "Новый чат") {
+        setChatTitle(activeChat.id, messageText.slice(0, 48));
+      }
+
+      const typingInterval = setInterval(() => {
+        ctx.sendChatAction("typing").catch(() => {});
+      }, 4000);
+      let waitMessage;
+      try {
+        waitMessage = await ctx.reply("GPT печатает...");
+        await ctx.sendChatAction("typing");
+      } catch (_error) {
+        // Если не удалось отправить статусное сообщение, продолжаем без него.
+      }
+
+      let model;
+      let response;
+      try {
+        const modelInput = buildResponseInput(previousMessages, messageText);
+        const result = await generateTextWithFallback({
+          messageText: modelInput,
+          user: { ...user, selected_text_model: effectiveModel }
+        });
+        model = result.model;
+        response = result.response;
+      } finally {
+        clearInterval(typingInterval);
+        if (waitMessage?.message_id) {
+          await ctx.deleteMessage(waitMessage.message_id).catch(() => {});
+        }
+      }
+
       if (model !== effectiveModel) {
         setUserTextModel(user.telegram_id, model);
       }
@@ -287,7 +375,8 @@ bot.on("text", async (ctx) => {
         throw new Error("Пустой ответ от модели");
       }
 
-      await ctx.reply(text);
+      addChatMessage(activeChat.id, "assistant", text);
+      await sendResponseWithFullViewButton(ctx, user.telegram_id, activeChat.id, text);
       incrementGptUsage(user.telegram_id);
       return;
     } catch (error) {

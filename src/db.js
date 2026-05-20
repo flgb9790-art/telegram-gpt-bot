@@ -22,6 +22,32 @@ db.exec(`
   )
 `);
 
+const userColumns = db.prepare("PRAGMA table_info(users)").all();
+if (!userColumns.some((column) => column.name === "active_chat_id")) {
+  db.exec("ALTER TABLE users ADD COLUMN active_chat_id INTEGER");
+}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS chats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    model TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+
 const selectUserStmt = db.prepare(`
   SELECT *
   FROM users
@@ -93,6 +119,54 @@ const updatePlanStmt = db.prepare(`
   WHERE telegram_id = ?
 `);
 
+const updateActiveChatStmt = db.prepare(`
+  UPDATE users
+  SET active_chat_id = ?, updated_at = ?
+  WHERE telegram_id = ?
+`);
+
+const createChatStmt = db.prepare(`
+  INSERT INTO chats (telegram_id, title, model, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?)
+`);
+
+const selectChatByIdStmt = db.prepare(`
+  SELECT *
+  FROM chats
+  WHERE id = ?
+`);
+
+const selectUserChatsStmt = db.prepare(`
+  SELECT *
+  FROM chats
+  WHERE telegram_id = ?
+  ORDER BY updated_at DESC
+`);
+
+const updateChatUpdatedAtStmt = db.prepare(`
+  UPDATE chats
+  SET updated_at = ?
+  WHERE id = ?
+`);
+
+const setChatTitleStmt = db.prepare(`
+  UPDATE chats
+  SET title = ?, updated_at = ?
+  WHERE id = ?
+`);
+
+const createMessageStmt = db.prepare(`
+  INSERT INTO messages (chat_id, role, content, created_at)
+  VALUES (?, ?, ?, ?)
+`);
+
+const selectChatMessagesStmt = db.prepare(`
+  SELECT id, chat_id, role, content, created_at
+  FROM messages
+  WHERE chat_id = ?
+  ORDER BY id ASC
+`);
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -120,6 +194,12 @@ export function getOrCreateUserFromData({ telegramId, username = null, firstName
     user = getUserByTelegramId(id);
   } else if (user.username !== username || user.first_name !== firstName) {
     updateIdentityStmt.run(username, firstName, now, id);
+    user = getUserByTelegramId(id);
+  }
+
+  if (!user.active_chat_id) {
+    const chat = createNewChat(id, user.selected_text_model || "gpt-4.1-mini");
+    updateActiveChatStmt.run(chat.id, nowIso(), id);
     user = getUserByTelegramId(id);
   }
 
@@ -180,6 +260,53 @@ export function resetDailyUsageIfNeeded(user) {
 export function setSubscriptionPlan(telegramId, plan) {
   updatePlanStmt.run(plan, nowIso(), String(telegramId));
   return getUserByTelegramId(telegramId);
+}
+
+export function createNewChat(telegramId, model, title = "Новый чат") {
+  const now = nowIso();
+  const result = createChatStmt.run(String(telegramId), title, model, now, now);
+  return selectChatByIdStmt.get(result.lastInsertRowid);
+}
+
+export function getChatById(chatId) {
+  return selectChatByIdStmt.get(Number(chatId));
+}
+
+export function getUserChats(telegramId) {
+  return selectUserChatsStmt.all(String(telegramId));
+}
+
+export function setActiveChat(telegramId, chatId) {
+  updateActiveChatStmt.run(Number(chatId), nowIso(), String(telegramId));
+  return getUserByTelegramId(telegramId);
+}
+
+export function ensureActiveChatForUser(user) {
+  if (user?.active_chat_id) {
+    const existing = getChatById(user.active_chat_id);
+    if (existing && String(existing.telegram_id) === String(user.telegram_id)) {
+      return existing;
+    }
+  }
+
+  const chat = createNewChat(user.telegram_id, user.selected_text_model || "gpt-4.1-mini");
+  setActiveChat(user.telegram_id, chat.id);
+  return chat;
+}
+
+export function addChatMessage(chatId, role, content) {
+  const now = nowIso();
+  createMessageStmt.run(Number(chatId), role, String(content), now);
+  updateChatUpdatedAtStmt.run(now, Number(chatId));
+}
+
+export function getChatMessages(chatId) {
+  return selectChatMessagesStmt.all(Number(chatId));
+}
+
+export function setChatTitle(chatId, title) {
+  setChatTitleStmt.run(String(title), nowIso(), Number(chatId));
+  return getChatById(chatId);
 }
 
 export function getCurrentUsageDate() {

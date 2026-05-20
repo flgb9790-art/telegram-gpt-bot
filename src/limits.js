@@ -30,7 +30,7 @@ const PLAN_LIMITS = {
   pro: {
     gptMessagesPerDay: 300,
     imagesPerDay: 100,
-    allowedTextModels: TEXT_MODELS.map((m) => m.id)
+    allowedTextModels: null
   }
 };
 
@@ -66,6 +66,9 @@ export function canGenerateImage(user) {
 
 export function canUseTextModel(user, model) {
   const limits = getUserLimits(user);
+  if (limits.plan === "owner" || limits.plan === "pro") {
+    return true;
+  }
   return limits.allowedTextModels.includes(model);
 }
 

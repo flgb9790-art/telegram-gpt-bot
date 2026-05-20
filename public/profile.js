@@ -26,6 +26,10 @@ function setStatus(message, type = "success") {
 }
 
 function renderProfile(data) {
+  const allowedTextModels = Array.isArray(data.limits.allowed_text_models)
+    ? data.limits.allowed_text_models
+    : null;
+
   const grid = document.getElementById("profile-grid");
   const badgeContainer = document.getElementById("plan-badge");
   const upgradeBtn = document.getElementById("upgrade-btn");
@@ -58,7 +62,7 @@ function renderProfile(data) {
     <div class="item"><span class="label">GPT сообщений сегодня</span><span class="value">${data.usage.gpt_messages_today}</span></div>
     <div class="item"><span class="label">Изображений сегодня</span><span class="value">${data.usage.images_today}</span></div>
     <div class="item"><span class="label">Лимиты тарифа</span><span class="value">GPT: ${gptLimit} / Image: ${imageLimit}</span></div>
-    <div class="item"><span class="label">Доступные модели</span><span class="value">${data.limits.allowed_text_models.join(", ")}</span></div>
+    <div class="item"><span class="label">Доступные модели</span><span class="value">${allowedTextModels ? allowedTextModels.join(", ") : "Все модели API"}</span></div>
   `;
 
   upgradeBtn.style.display = isOwner ? "none" : "inline-block";

@@ -4,13 +4,15 @@ import { WEBAPP_BASE_URL } from "./config.js";
 export const BTN_CHAT = "💬 Чат GPT";
 export const BTN_IMAGE = "🎨 Генерация изображения";
 export const BTN_PROFILE = "⚙️ Профиль";
+export const BTN_NEW_CHAT = "🆕 Новый чат";
 export const BTN_SETTINGS = "⚙️ Настройки";
 export const BTN_MAIN_MENU = "🏠 Главное меню";
 
 export function getMainMenuKeyboard() {
   return Markup.keyboard(
     [
-      [Markup.button.text(BTN_CHAT), Markup.button.text(BTN_IMAGE)],
+      [Markup.button.text(BTN_CHAT), Markup.button.text(BTN_NEW_CHAT)],
+      [Markup.button.text(BTN_IMAGE)],
       [Markup.button.webApp(BTN_PROFILE, `${WEBAPP_BASE_URL}/profile.html`)]
     ],
     { columns: 2 }

@@ -204,3 +204,41 @@ button:disabled {
   border-color: rgba(107, 139, 255, 0.9);
   box-shadow: 0 0 0 3px rgba(107, 139, 255, 0.2);
 }
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.chat-bubble {
+  border-radius: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  max-width: 92%;
+}
+
+.chat-bubble.user {
+  margin-left: auto;
+  background: rgba(107, 139, 255, 0.15);
+}
+
+.chat-bubble.assistant {
+  margin-right: auto;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.chat-role {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.chat-text {
+  font-size: 14px;
+  line-height: 1.45;
+  word-break: break-word;
+}

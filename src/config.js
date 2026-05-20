@@ -18,5 +18,9 @@ for (const key of requiredEnv) {
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 export const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID);
-export const WEBAPP_BASE_URL = process.env.WEBAPP_BASE_URL.replace(/\/$/, "");
+const rawWebappBaseUrl = process.env.WEBAPP_BASE_URL.trim();
+const normalizedWebappBaseUrl = /^https?:\/\//i.test(rawWebappBaseUrl)
+  ? rawWebappBaseUrl
+  : `https://${rawWebappBaseUrl}`;
+export const WEBAPP_BASE_URL = normalizedWebappBaseUrl.replace(/\/$/, "");
 export const PORT = Number(process.env.PORT || 3000);

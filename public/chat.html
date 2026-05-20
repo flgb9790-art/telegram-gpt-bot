@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>История чата</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <main class="container">
+      <section class="card card-hero">
+        <h1 class="title">📖 Полный чат</h1>
+        <p class="subtitle" id="chat-meta">Загрузка...</p>
+      </section>
+      <section class="card">
+        <div id="messages" class="chat-messages"></div>
+        <div class="actions">
+          <button id="back-btn" class="btn-secondary">← К настройкам</button>
+          <button id="close-btn" class="btn-primary">Закрыть</button>
+        </div>
+        <div id="status" class="status"></div>
+      </section>
+    </main>
+    <script src="/chat.js" type="module"></script>
+  </body>
+</html>
